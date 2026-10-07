@@ -1,6 +1,6 @@
 # Tables
 
-Study materials and runnable examples for working with tabular data in MATLAB and Python. The project covers importing CSV files, calculating league standings, joining tables, preparing data types, plotting relationships, and cleaning scientific time series.
+Study materials and runnable examples for working with tabular data in MATLAB and Python. The project covers importing CSV files, calculating league standings, joining tables, preparing data types, and plotting relationships.
 
 ## Project contents
 
@@ -16,7 +16,6 @@ Study materials and runnable examples for working with tabular data in MATLAB an
 | `Python_Tables_Study_Guide.pdf` / `.tex` | Python tables study guide and editable LaTeX source. |
 | `1_Tables.docx` | Tables teaching material. |
 | `Tables Quick Reference.pdf` | Tables reference material. |
-| `Python_Clean_Prepare_Data_Course/` | Separate Python course on cleaning and preparing a synthetic light curve, with a script, notebook, and PDF/LaTeX guide. |
 
 ## Get started
 
@@ -66,25 +65,6 @@ Running the script writes these files to `Python_Tables_Output/`:
 
 These plots describe associations in the supplied season data; they do not establish causation.
 
-## Clean and prepare scientific data
-
-The companion course generates a reproducible synthetic light curve and demonstrates missing-value standardization, local outlier detection, short-gap interpolation, normalization, polynomial detrending, and smoothing with time-based windows. Long gaps remain missing after interpolation.
-
-Run its script from the repository root:
-
-```bash
-/Users/victorbui/venvs/ai312/bin/python Python_Clean_Prepare_Data_Course/Python_Clean_Prepare_Data_Course.py
-```
-
-For the interactive course, launch the notebook from its own folder so it can import the companion module:
-
-```bash
-cd Python_Clean_Prepare_Data_Course
-/Users/victorbui/venvs/ai312/bin/jupyter lab Python_Clean_Prepare_Data_Course.ipynb
-```
-
-The script writes `prepared_light_curve.csv`, `quality_audit.csv`, `01_outlier_detection.png`, and `02_processing_stages.png` to that course's `output/` folder. See the [course README](Python_Clean_Prepare_Data_Course/README.md) for its file overview.
-
 ## Generated files
 
-Both Python workflows recreate their named outputs when run. Generated output folders, notebook checkpoints, Python caches, local environment files, and LaTeX build intermediates are excluded from Git by `.gitignore`. The supplied input CSV files and study documents are tracked.
+The Python tables workflow recreates its named outputs when run. Generated output folders, notebook checkpoints, Python caches, local environment files, and LaTeX build intermediates are excluded from Git by `.gitignore`. The supplied input CSV files and study documents are tracked.
