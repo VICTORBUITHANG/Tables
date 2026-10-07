@@ -1,0 +1,523 @@
+\documentclass[11pt,letterpaper]{article}
+\usepackage[margin=0.82in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{longtable}
+\usepackage{listings}
+\usepackage{amsmath}
+\usepackage{enumitem}
+\usepackage{fancyhdr}
+\usepackage{hyperref}
+\usepackage{titlesec}
+
+\definecolor{codebg}{RGB}{246,248,250}
+\definecolor{codeframe}{RGB}{216,222,228}
+\definecolor{accent}{RGB}{28,78,121}
+\hypersetup{colorlinks=true,linkcolor=accent,urlcolor=accent}
+\lstdefinestyle{pythonstyle}{
+  language=Python,
+  basicstyle=\ttfamily\small,
+  keywordstyle=\color{blue!55!black},
+  commentstyle=\color{green!35!black},
+  stringstyle=\color{red!45!black},
+  backgroundcolor=\color{codebg},
+  frame=single,
+  rulecolor=\color{codeframe},
+  framerule=0.35pt,
+  breaklines=true,
+  keepspaces=true,
+  showstringspaces=false,
+  columns=fullflexible,
+  xleftmargin=4pt,
+  xrightmargin=4pt,
+  aboveskip=8pt,
+  belowskip=8pt
+}
+\lstset{style=pythonstyle}
+\setlist[itemize]{leftmargin=1.4em,itemsep=0.2em,topsep=0.35em}
+\setlist[enumerate]{leftmargin=1.55em,itemsep=0.25em,topsep=0.35em}
+\titleformat{\section}{\Large\bfseries\color{black}}{\thesection}{0.65em}{}
+\titleformat{\subsection}{\large\bfseries\color{black}}{\thesubsection}{0.65em}{}
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small Clean and Prepare Data with Python}
+\fancyhead[R]{\small Study Guide}
+\fancyfoot[C]{\thepage}
+\renewcommand{\headrulewidth}{0.3pt}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0.55em}
+
+\title{Clean and Prepare Data for Analysis with Python\\[0.35em]
+\large Study Guide for Scientific and Time Series Data}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+\vspace{-2em}
+
+This guide explains how to turn imperfect observations into an analysis-ready
+dataset with NumPy and pandas. The accompanying Python script runs a complete
+workflow, while the Jupyter notebook provides guided practice and solutions.
+The central example is a light curve with slow drift, transit-like dips,
+isolated spikes, uneven sampling, missing values, and measurement noise.
+
+\textbf{Estimated study time:} 60--90 minutes. Use the Python environment at
+\nolinkurl{/Users/victorbui/venvs/ai312}. Keep the script and notebook in the same
+folder. Run the script with:
+
+\begin{lstlisting}
+# Execute the complete course and create the output tables and figures.
+/Users/victorbui/venvs/ai312/bin/python \
+    Python_Clean_Prepare_Data_Course.py
+\end{lstlisting}
+
+\tableofcontents
+
+\section{Learning plan}
+
+The workflow follows the order in which decisions should normally be made.
+Inspect the raw records before applying a method. Standardize missing-value
+codes before calculating statistics. Detect unusual observations in context.
+Interpolate only gaps that the data can support. Apply scaling, detrending, and
+smoothing with a stated analytical purpose. Finish with explicit checks and an
+audit table.
+
+\begin{center}
+\begin{tabular}{@{}p{0.19\linewidth}p{0.33\linewidth}p{0.38\linewidth}@{}}
+\toprule
+Stage & Main question & Evidence to retain \\
+\midrule
+Inspection & What does each row and column mean? & Shape, types, units, ranges, time order \\
+Missing data & Which markers mean unavailable? & Counts, locations, gap lengths, chosen policy \\
+Outliers & Which values violate the local pattern? & Method, window, threshold, flagged rows \\
+Interpolation & Which gaps support estimation? & Sample locations, method, maximum gap \\
+Normalization & Which comparison needs a common scale? & Fitted mean, spread, range, units \\
+Detrending & Which baseline obscures the event? & Model degree, excluded events, residuals \\
+Smoothing & Which variation is noise? & Window width, direction, statistic \\
+Validation & Did the workflow preserve meaning? & Assertions, row counts, output schema \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\textbf{Key distinction.} Missing values indicate unavailable measurements.
+Outliers are observed values that appear inconsistent with an expected pattern.
+Noise is short-scale variation. A trend is structured change over a longer
+scale. These conditions require different evidence and should not share one
+automatic treatment.
+
+\section{Inspect data before cleaning}
+
+Start by confirming what the table represents. For time series data, verify
+that timestamps are ordered and determine whether the spacing is regular. Read
+units and instrument documentation. Plot the data because summaries can hide
+spikes, gaps, and drift.
+
+\begin{lstlisting}
+# Inspect structure, missingness, order, and numeric ranges.
+print(data.shape)
+print(data.dtypes)
+print(data.isna().sum())
+print(data.describe())
+assert data["time_days"].is_monotonic_increasing
+
+ax = data.plot(x="time_days", y="brightness", figsize=(10, 4))
+ax.set(xlabel="Time (days)", ylabel="Relative brightness")
+\end{lstlisting}
+
+A sentinel such as \texttt{-999} may represent a missing measurement. Until it
+is replaced, the minimum, mean, standard deviation, trend fit, and plots treat
+it as a valid number. Only replace a code when metadata or domain knowledge
+defines its meaning.
+
+\begin{lstlisting}
+# Convert documented codes to the standard numeric missing value.
+data["brightness"] = data["brightness"].replace(-999, np.nan)
+\end{lstlisting}
+
+\subsection{A useful inspection checklist}
+
+\begin{itemize}
+\item Confirm the unit and meaning of every variable used in the analysis.
+\item Check duplicate rows and duplicate timestamps separately.
+\item Count explicit missing values and documented sentinel codes.
+\item Look for impossible values using domain limits.
+\item Inspect time order, sample spacing, and gap length.
+\item Compare a plot with numeric summaries before changing the data.
+\end{itemize}
+
+\section{Detect and handle outliers}
+
+An outlier is unusual relative to a specified reference. A global mean and
+standard deviation may work for stable, symmetric data, but they are sensitive
+to extreme observations. Quartile rules are more robust. A local signal often
+needs a moving reference because a slow trend changes its center over time.
+
+The course uses a rolling median and median absolute deviation (MAD). Within a
+local window, let $m$ be the median. The raw MAD is
+
+\[
+  \operatorname{MAD} = \operatorname{median}(|x_i-m|).
+\]
+
+For nearly normal noise, $1.4826\operatorname{MAD}$ estimates the standard
+deviation. A point is flagged when its absolute deviation exceeds a chosen
+multiple of that robust scale.
+
+\begin{lstlisting}
+# Estimate a local center and robust local scale.
+center = values.rolling(41, center=True, min_periods=9).median()
+deviation = (values - center).abs()
+mad = deviation.rolling(41, center=True, min_periods=9).median()
+robust_scale = 1.4826 * mad
+outlier = (deviation > 5 * robust_scale) & values.notna()
+
+# Preserve the timestamp and mark the suspect measurement as missing.
+cleaned = data.copy()
+cleaned.loc[outlier, "brightness"] = np.nan
+\end{lstlisting}
+
+The window should cover enough ordinary variation to estimate a stable local
+center without spanning unrelated behavior. The threshold controls sensitivity:
+a smaller number flags more observations. Review flagged points on the raw plot.
+A scientifically meaningful event can be rare and extreme without being an
+error.
+
+\textbf{Removal versus marking.} Dropping an outlier row also removes its time
+coordinate. Marking its measurement as missing retains the sampling grid and
+records where information became unavailable. This often makes later gap logic
+clearer.
+
+\section{Work with missing data}
+
+There are three broad strategies. Ignoring missing values during a reduction
+retains the measured observations. Removing rows creates a complete subset but
+can discard useful values from other columns. Replacing values preserves shape
+and alignment but adds estimates that were not observed.
+
+\begin{longtable}{@{}p{0.18\linewidth}p{0.33\linewidth}p{0.39\linewidth}@{}}
+\toprule
+Strategy & Appropriate use & Main limitation \\
+\midrule
+\endhead
+Ignore in a calculation & A reduction can use available values and the missing mechanism does not invalidate it & Different calculations may handle missing values differently \\
+Remove rows & Missing rows are few and removal does not distort the sample or break alignment & Valid values in other columns may be lost \\
+Replace with a constant or statistic & The replacement has a documented meaning, or a simple baseline is explicitly required & Variability and relationships can be distorted \\
+Interpolate & Nearby observations support an estimate within a short gap & Filled values can look more certain than they are \\
+Model-based imputation & A justified model uses other information and uncertainty is tracked & Results depend on model assumptions \\
+\bottomrule
+\end{longtable}
+
+\begin{lstlisting}
+# Locate, count, ignore, remove, or replace missing values.
+missing = data["brightness"].isna()
+count = int(missing.sum())
+mean_available = data["brightness"].mean()
+complete_rows = data.dropna(subset=["brightness"])
+median_filled = data["brightness"].fillna(data["brightness"].median())
+\end{lstlisting}
+
+When a plotted line contains \texttt{NaN}, it breaks at the gap. Dropping those
+rows can connect the two measured segments and visually imply continuity. Keep
+the original timestamps and a missingness indicator when the gaps matter.
+
+\section{Interpolate missing values}
+
+Interpolation estimates values between known observations. Nearest-neighbor
+interpolation produces steps. Linear interpolation connects neighboring values
+with straight lines. Cubic splines are smooth but can oscillate between points.
+Shape-preserving cubic interpolation limits those oscillations when monotonicity
+matters.
+
+For points $(x_1,y_1)$ and $(x_2,y_2)$, linear interpolation at $x$ is
+
+\[
+  y(x) = y_1 + \frac{x-x_1}{x_2-x_1}(y_2-y_1).
+\]
+
+The sample locations matter. If $x$ is unevenly spaced, interpolating by row
+position gives a different answer from interpolating by the actual $x$ values.
+
+\begin{lstlisting}
+# Interpolate using the numeric index as the actual sample location.
+timed = pd.Series(y.to_numpy(), index=x)
+linear_by_x = timed.interpolate(method="index")
+\end{lstlisting}
+
+Limit interpolation to gaps supported by neighboring information. The following
+pattern fills no more than five consecutive internal missing rows. Boundary
+gaps and longer runs remain missing.
+
+\begin{lstlisting}
+# Preserve long gaps instead of drawing unsupported straight bridges.
+timed = data.set_index("time_days")["brightness"]
+missing = timed.isna()
+run_id = missing.ne(missing.shift()).cumsum()
+run_size = missing.groupby(run_id).transform("sum")
+fillable = missing & (run_size <= 5)
+
+candidate = timed.interpolate(method="index", limit_area="inside")
+timed.loc[fillable] = candidate.loc[fillable]
+\end{lstlisting}
+
+The row limit is an operational rule, not a universal scientific threshold. If
+sample spacing varies greatly, measure gap duration as well as row count. Store
+an indicator for interpolated rows when later users need to distinguish estimates
+from observations.
+
+\section{Shift and scale data}
+
+Normalization makes variables comparable or converts a physical measurement to
+a form required by a model. Each transformation answers a different question.
+Missing values should normally remain missing during the calculation.
+
+\subsection{Centering}
+
+Centering subtracts the mean:
+
+\[
+  x_{c,i} = x_i - \bar{x}.
+\]
+
+The centered data have mean zero while retaining their unit and spread.
+
+\subsection{Z-scores}
+
+A z-score measures distance from the mean in standard deviations:
+
+\[
+  z_i = \frac{x_i-\bar{x}}{s}.
+\]
+
+Specify whether $s$ is the population standard deviation
+(\texttt{ddof=0}) or sample standard deviation (\texttt{ddof=1}). This course
+uses \texttt{ddof=0} and verifies mean 0 and standard deviation 1.
+
+\subsection{Relative and range scaling}
+
+Relative change can place a measured signal on a dimensionless scale:
+
+\[
+  r_i = \frac{x_i-\bar{x}}{\bar{x}}.
+\]
+
+Min-max scaling maps observations to $[a,b]$:
+
+\[
+  x'_i = a + (b-a)\frac{x_i-x_{\min}}{x_{\max}-x_{\min}}.
+\]
+
+\begin{lstlisting}
+# Calculate several forms without overwriting the measured values.
+mean_value = x.mean()
+population_sd = x.std(ddof=0)
+centered = x - mean_value
+z_score = (x - mean_value) / population_sd
+relative = (x - mean_value) / mean_value
+scaled_01 = (x - x.min()) / (x.max() - x.min())
+\end{lstlisting}
+
+Constant data have zero spread and cannot be divided by their standard deviation
+or range. In prediction workflows, calculate normalization parameters on the
+training partition, retain them, and apply the same values to validation and
+future observations.
+
+\section{Remove unwanted trends}
+
+Detrending separates a slowly changing baseline from the variation under study.
+A polynomial baseline of degree $n$ can be fitted with \texttt{np.polyfit} and
+evaluated with \texttt{np.polyval}. Subtracting the fitted baseline produces the
+residual signal.
+
+\begin{lstlisting}
+# Exclude missing values and known events from the baseline fit.
+valid = values.notna() & baseline_mask
+time_center = time[valid].mean()
+time_scale = time[valid].std(ddof=0)
+scaled_time = (time - time_center) / time_scale
+
+coefficients = np.polyfit(scaled_time[valid], values[valid], 3)
+trend = np.polyval(coefficients, scaled_time)
+detrended = values - trend
+\end{lstlisting}
+
+Centering and scaling time improves numerical conditioning, particularly for
+higher-degree polynomials or large timestamp values. Exclude known events from
+the baseline fit when the events should survive in the residual. Otherwise, the
+baseline can bend toward them and reduce their apparent depth.
+
+Model degree creates a bias-flexibility tradeoff. A line may leave curvature. A
+high-degree polynomial may follow noise or absorb the event. Compare residual
+structure, scientific plausibility, and performance on held-out baseline regions.
+The smallest training residual is insufficient evidence by itself.
+
+\section{Smooth noisy data}
+
+Smoothing reduces short-scale variation so broader patterns become easier to
+see. It also changes the signal. Record the method, window size, direction, and
+boundary behavior.
+
+\begin{center}
+\begin{tabular}{@{}p{0.25\linewidth}p{0.28\linewidth}p{0.37\linewidth}@{}}
+\toprule
+Method & Strength & Limitation \\
+\midrule
+Moving mean & Reduces zero-mean random noise & Sensitive to spikes and blurs sharp changes \\
+Moving median & Resists isolated extreme values & Can flatten small-scale continuous variation \\
+Gaussian-weighted mean & Gives nearby values greater weight & Requires a bandwidth choice \\
+Local regression & Follows smooth nonlinear patterns & More computation and tuning \\
+Polynomial smoothing filter & Can preserve peaks better than a simple mean & Window and polynomial order must be compatible \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{lstlisting}
+# Sample-count windows for regularly spaced observations.
+centered_mean = series.rolling(5, center=True, min_periods=1).mean()
+trailing_median = series.rolling(4, min_periods=1).median()
+
+# Reverse twice to calculate a leading four-point median.
+leading_median = (
+    series.iloc[::-1].rolling(4, min_periods=1).median().iloc[::-1]
+)
+\end{lstlisting}
+
+A centered five-point window uses two previous values, the current value, and
+two future values. A trailing four-point window uses the current value and three
+previous values. Trailing windows support live monitoring because they do not
+use future data. Leading and centered windows suit retrospective analysis.
+
+For irregular sampling, a fixed number of rows does not represent a fixed time
+span. Use a time-aware window. The course script includes
+\texttt{time\_window\_smooth}, which defines separate durations before and after
+each observation.
+
+Larger windows suppress more noise, but they also reduce peak height, broaden
+transitions, and can erase short events. Compare several widths against the
+known time scale of the phenomenon.
+
+\section{Build a reviewable pipeline}
+
+A reliable pipeline retains raw inputs, creates named intermediate columns, and
+tests expected invariants. Avoid overwriting the only copy of a measurement.
+Export an audit table alongside the prepared observations.
+
+\begin{lstlisting}
+# Check properties that must remain true after preprocessing.
+assert len(final_data) == len(raw)
+assert final_data["time_days"].is_monotonic_increasing
+assert not (final_data["brightness_clean"] == -999).any()
+assert final_data.loc[long_gap, "brightness_clean"].isna().all()
+assert abs(z_score.mean()) < 1e-10
+assert abs(z_score.std(ddof=0) - 1) < 1e-10
+
+# Export without turning the DataFrame index into an extra data column.
+final_data.to_csv("output/prepared_light_curve.csv", index=False)
+audit.to_csv("output/quality_audit.csv", index=False)
+\end{lstlisting}
+
+\subsection{Suggested output schema}
+
+\begin{center}
+\begin{tabular}{@{}p{0.28\linewidth}p{0.62\linewidth}@{}}
+\toprule
+Column & Meaning \\
+\midrule
+\texttt{time\_days} & Original sample location in days \\
+\texttt{brightness\_clean} & Sentinel and outlier handling applied; long gaps retained \\
+\texttt{relative\_brightness} & Centered brightness divided by its mean \\
+\texttt{trend} & Cubic baseline estimated outside event intervals \\
+\texttt{detrended} & Relative brightness minus the fitted trend \\
+\texttt{smoothed} & Centered mean over a 0.10-day window \\
+\texttt{trailing\_median} & Causal median over the current and prior 0.10 days \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{Practice questions}
+
+\begin{enumerate}
+\item Why must a sentinel code be standardized before calculating a mean or
+fitting a trend?
+\item When does a rolling outlier detector provide a better reference than a
+global threshold?
+\item Why can dropping missing rows make a time-series line plot misleading?
+\item For irregular sample locations, why does linear interpolation by row
+position differ from interpolation by the measured location?
+\item Give one reason to retain a long gap instead of interpolating it.
+\item Which normalization keeps the original unit? Which transformations are
+dimensionless?
+\item Why should known transit-like events be excluded from a baseline fit?
+\item Which smoothing window is appropriate for live monitoring, and why?
+\item Why can a 17-point moving mean obscure information that a 3-point moving
+mean preserves?
+\item Name four assertions that should run before exporting the prepared data.
+\end{enumerate}
+
+\subsection*{Answer guide}
+
+\begin{enumerate}
+\item The code otherwise acts as a real measurement and can dominate summaries
+and fitted models.
+\item It helps when the signal center changes over time and unusual values must
+be judged against nearby observations.
+\item Removing the missing row removes the gap marker, so the plot can connect
+separate measured segments.
+\item Row position assumes equal spacing; actual-location interpolation weights
+the estimate by the real distances between neighboring samples.
+\item A long gap may contain unobserved structure, and a straight bridge can be
+mistaken for measured continuity.
+\item Centering retains the unit. Z-scores, relative change, and unit-interval
+scaling are dimensionless.
+\item Including the events can pull the baseline toward them and reduce their
+apparent depth in the residual.
+\item A trailing window, because it uses only current and earlier observations.
+\item The wider window averages across a longer interval and therefore blurs or
+flattens short features.
+\item Examples include row count, time order, sentinel removal, long-gap
+preservation, expected schema, and normalization properties.
+\end{enumerate}
+
+\section{Quick reference}
+
+\small
+\begin{longtable}{@{}p{0.27\linewidth}p{0.64\linewidth}@{}}
+\toprule
+Goal & Python pattern \\
+\midrule
+\endhead
+Locate missing values & \texttt{series.isna()} \\
+Count missing values & \texttt{series.isna().sum()} \\
+Standardize a sentinel & \texttt{series.replace(-999, np.nan)} \\
+Remove incomplete rows & \texttt{df.dropna(subset=["value"])} \\
+Fill with a median & \texttt{series.fillna(series.median())} \\
+Interpolate by location & \texttt{pd.Series(y, index=x).interpolate(method="index")} \\
+Centered moving mean & \texttt{series.rolling(5, center=True).mean()} \\
+Trailing moving median & \texttt{series.rolling(4).median()} \\
+Center values & \texttt{x - x.mean()} \\
+Calculate z-scores & \texttt{(x - x.mean()) / x.std(ddof=0)} \\
+Scale to $[0,1]$ & \texttt{(x - x.min()) / (x.max() - x.min())} \\
+Fit a polynomial & \texttt{coeff = np.polyfit(x, y, degree)} \\
+Evaluate a polynomial & \texttt{trend = np.polyval(coeff, x)} \\
+Select valid rows & \texttt{valid = series.notna()} \\
+Preserve a copy & \texttt{cleaned = raw.copy()} \\
+Validate a requirement & \texttt{assert condition} \\
+Export a CSV & \texttt{df.to\_csv("prepared.csv", index=False)} \\
+\bottomrule
+\end{longtable}
+\normalsize
+
+\section*{Completion criteria}
+
+You have completed the material when you can run both course formats, explain
+why each row was removed or estimated, preserve the intended long gap, compare
+at least two normalization and smoothing choices, and export a dataset whose
+quality checks pass. A preprocessing method is complete only when its assumptions
+and effects are visible to the next analyst.
+
+\end{document}

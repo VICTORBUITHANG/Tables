@@ -1,0 +1,38 @@
+# macOS metadata
+.DS_Store
+._*
+
+# Python caches and local environments
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+# Local secrets
+.env
+.env.*
+!.env.example
+
+# Jupyter checkpoints
+.ipynb_checkpoints/
+
+# MATLAB autosaves and workspace snapshots
+*.asv
+*.m~
+matlab_workspace.mat
+
+# Generated course outputs
+/Python_Tables_Output/
+/Python_Clean_Prepare_Data_Course/output/
+
+# LaTeX build intermediates
+*.aux
+*.log
+*.out
+*.toc
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+*.bbl
+*.blg

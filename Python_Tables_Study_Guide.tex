@@ -1,0 +1,242 @@
+\documentclass[11pt,letterpaper]{article}
+\usepackage[margin=0.82in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{listings}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage{fancyhdr}
+\hypersetup{colorlinks=true,linkcolor=blue!45!black,urlcolor=blue!45!black}
+\definecolor{codebg}{RGB}{246,248,250}
+\definecolor{codeframe}{RGB}{220,225,230}
+\lstdefinestyle{pythonstyle}{
+  language=Python,
+  basicstyle=\ttfamily\small,
+  keywordstyle=\color{blue!55!black},
+  commentstyle=\color{green!35!black},
+  stringstyle=\color{red!45!black},
+  backgroundcolor=\color{codebg},
+  frame=single,
+  rulecolor=\color{codeframe},
+  framerule=0.35pt,
+  breaklines=true,
+  keepspaces=true,
+  showstringspaces=false,
+  columns=fullflexible,
+  literate={£}{{\pounds}}1,
+  xleftmargin=4pt,
+  xrightmargin=4pt,
+  aboveskip=8pt,
+  belowskip=8pt
+}
+\lstset{style=pythonstyle}
+\setlist[itemize]{nosep,leftmargin=1.4em}
+\setlist[enumerate]{itemsep=0.25em,leftmargin=1.5em}
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small Python Tables Study Guide}
+\fancyhead[R]{\small pandas}
+\fancyfoot[C]{\thepage}
+\renewcommand{\headrulewidth}{0.3pt}
+\title{Python Tables Study Guide\\\large A practical companion for tabular data with pandas}
+\author{}
+\date{}
+\begin{document}
+\maketitle
+\vspace{-2em}
+
+\noindent This guide shows how to read, transform, combine, validate, and export tables with Python. Work through the accompanying \texttt{Python\_Tables\_Course.ipynb} for runnable examples and a final project. The supplied files describe 20 teams in the 2015--16 English Premier League season. A \emph{row} is one team, and a \emph{column} is one measured variable. Allow about two hours for the notebook and another 20 minutes for review.
+
+\section*{Before you begin}
+You need basic Python arithmetic and indexing, Python 3, pandas, matplotlib, and Jupyter. Keep the notebook and the three CSV files in the same folder. From that folder, start Jupyter with \texttt{jupyter lab} or \texttt{jupyter notebook}. If a package is missing, run \texttt{python -m pip install pandas matplotlib jupyter} in your chosen Python environment. Run notebook cells in order; the examples build on variables created earlier.
+
+\begin{center}
+\begin{tabular}{@{}p{0.28\linewidth}p{0.65\linewidth}@{}}
+\toprule
+File & Purpose \\
+\midrule
+\texttt{EPLresults.csv} & Home and away wins, draws, losses, goals for, and goals against. \\
+\texttt{EPLteams.csv} & Payroll, manager, manager hire date, and nationality. \\
+\texttt{EPLFinalStandings.csv} & A reference result for checking your calculated standings. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{The table model}
+A pandas \texttt{DataFrame} is a two-dimensional table with labeled columns and an index for rows. Each column has a data type, such as integer, floating-point number, text, date/time, or category. A single selected column is usually a \texttt{Series}; selecting a list of columns produces another \texttt{DataFrame}. Labels describe meaning, so choose column names that remain clear when the table is printed or exported.
+
+\begin{lstlisting}
+# Import the file and inspect its shape, names, types, and missing values.
+import pandas as pd
+results = pd.read_csv("EPLresults.csv")
+print(results.shape)       # (20, 11)
+print(results.columns)
+print(results.dtypes)
+print(results.isna().sum())
+print(results.head())
+\end{lstlisting}
+
+Check types and missing values before arithmetic. CSV is a text format and does not store Python data types explicitly. pandas infers them when reading.
+
+\section{Select, filter, and sort}
+Use \texttt{loc} for row labels and column names, and \texttt{iloc} for integer positions. A Boolean expression filters rows. Use parentheses around each comparison when combining conditions with \texttt{\&} or \texttt{|}. Sorting reorders entire rows, keeping team names aligned with statistics.
+
+\begin{lstlisting}
+# Keep team names with both win columns.
+wins = results.loc[:, ["Team", "Home Wins", "Away Wins"]]
+
+# Use zero-based positions for the first three rows.
+first_three = wins.iloc[:3]
+
+# Find teams with at least ten away wins.
+strong_away = results.loc[results["Away Wins"] >= 10]
+
+# Break a home-win tie with away wins.
+ordered = results.sort_values(
+    ["Home Wins", "Away Wins"], ascending=[False, False]
+)
+\end{lstlisting}
+
+\noindent \textbf{Common mistake.} \texttt{df["Team"]} is a \texttt{Series}, while \texttt{df[["Team"]]} is a one-column \texttt{DataFrame}. Check which form a later operation expects. \texttt{iloc[:3]} includes rows at positions 0, 1, and 2; the stop position is excluded.
+
+\section{Calculate a standings table}
+Add corresponding home and away statistics for each team. Points equal three times total wins plus total draws; goal difference equals goals for minus goals against. The rows in these files are aligned within \texttt{EPLresults.csv}, so elementwise addition is appropriate. Rebuild a separate table to keep the imported data intact.
+
+\begin{lstlisting}
+# Create total records for all five season statistics.
+standings = pd.DataFrame({"Team": results["Team"]})
+for stat in ("Wins", "Draws", "Losses", "GF", "GA"):
+    standings[f"Total{stat}"] = (
+        results[f"Home {stat}"] + results[f"Away {stat}"]
+    )
+
+# Apply the point rule and order by the stated tie breaker.
+standings["GoalDiff"] = standings["TotalGF"] - standings["TotalGA"]
+standings["Points"] = (
+    3 * standings["TotalWins"] + standings["TotalDraws"]
+)
+standings = standings.sort_values(
+    ["Points", "GoalDiff"], ascending=[False, False]
+).reset_index(drop=True)
+\end{lstlisting}
+
+The five pairs must be added by their shared statistic names. Avoid blindly adding all numeric columns if their order or meaning might differ. The season has 38 matches per team; this is a useful arithmetic check. The supplied standings confirm all 20 rows and columns for this dataset. Other competitions can require additional tie breakers.
+
+\begin{lstlisting}
+# Verify the match count and compare against the reference file.
+assert (
+    standings["TotalWins"]
+    + standings["TotalDraws"]
+    + standings["TotalLosses"] == 38
+).all()
+reference = pd.read_csv("EPLFinalStandings.csv")
+pd.testing.assert_frame_equal(standings, reference, check_dtype=False)
+\end{lstlisting}
+
+\section{Join related tables}
+A join combines rows with a common key. Here, \texttt{Team} identifies a team in each CSV. Check key uniqueness before a one-to-one merge. A left join keeps every standings row, and the merge indicator reveals missing matches. Unmatched fields contain missing values.
+
+\begin{lstlisting}
+# Match each standings row to one team-information row.
+teams = pd.read_csv("EPLteams.csv")
+assert standings["Team"].is_unique
+assert teams["Team"].is_unique
+joined = standings.merge(
+    teams, on="Team", how="left",
+    validate="one_to_one", indicator=True
+)
+assert joined["_merge"].eq("both").all()
+joined = joined.drop(columns="_merge")
+\end{lstlisting}
+
+A duplicate key can multiply rows in a merge. A misspelled team name can leave unmatched data. Both errors can be harder to notice after additional calculations, so validate immediately.
+
+\section{Manage names, types, and dates}
+Column names may include spaces or units. Rename them when a concise name improves later code, but keep units visible in the replacement. Dates in \texttt{EPLteams.csv} use day, abbreviated month name, and four-digit year; an explicit format avoids ambiguity. \texttt{errors="raise"} stops at an invalid date instead of silently producing missing data.
+
+\begin{lstlisting}
+# Give frequently used fields concise names with units retained.
+analysis = joined.rename(columns={
+    "Payroll (M£)": "Payroll_MGBP",
+    "Manager Hire Date": "ManagerHireDate",
+    "Manager Nationality": "ManagerNationality",
+})
+
+# Parse dates and represent repeated labels as categories.
+analysis["ManagerHireDate"] = pd.to_datetime(
+    analysis["ManagerHireDate"], format="%d %b %Y", errors="raise"
+)
+analysis["ManagerNationality"] = (
+    analysis["ManagerNationality"].astype("category")
+)
+\end{lstlisting}
+
+Use \texttt{df.loc[:, columns]} to reorder or retain columns, \texttt{rename(columns=\{...\})} to change names, and \texttt{drop(columns=[...])} to remove columns. Most pandas methods return a new table unless assigned back; this makes it easier to inspect each transformation.
+
+\section{Export and verify}
+Write a CSV without the pandas index, then read it back. This checks that the intended columns and values survived serialization. CSV does not preserve category or date types, so parse these again when loading a saved analysis table.
+
+\begin{lstlisting}
+# Save and reopen the calculated standings.
+standings.to_csv("PythonFinalStandings.csv", index=False)
+reloaded = pd.read_csv("PythonFinalStandings.csv")
+pd.testing.assert_frame_equal(reloaded, standings, check_dtype=False)
+\end{lstlisting}
+
+\section{Explore without overclaiming}
+A scatter plot can reveal patterns or unusual teams. The horizontal axis below is payroll in millions of pounds; the vertical axis is league points. Correlation summarizes linear association but does not identify a cause. The dataset contains only 20 teams from one season. Club resources, transfers, injuries, and other factors may affect both quantities.
+
+\begin{lstlisting}
+# Make a labeled descriptive plot of payroll and points.
+import matplotlib.pyplot as plt
+fig, ax = plt.subplots(figsize=(7, 4))
+ax.scatter(analysis["Payroll_MGBP"], analysis["Points"])
+ax.set(xlabel="Payroll (million GBP)", ylabel="League points")
+fig.tight_layout()
+plt.show()
+\end{lstlisting}
+
+Recorded manager hire dates describe the manager named in the team file. Some dates occur after the season started on 8 August 2015. A tenure measure anchored to that date would then be negative, so inspect dates and define the research question before using tenure to explain season results.
+
+\section{Practice and answers}
+\begin{enumerate}
+\item \textbf{Selection.} Show \texttt{Team} and \texttt{Away GF} for teams with at least ten away wins, highest away goals first.
+\item \textbf{Tie breaker.} Which two teams earned 66 points, and why does one rank higher?
+\item \textbf{Join check.} What happens to the team-information columns in a left join if a team key has no match?
+\item \textbf{Project.} Produce a five-column report with team, points, goal difference, payroll, and manager nationality. Verify 20 unique teams and no missing values. Save it as \texttt{PythonTeamReport.csv}.
+\end{enumerate}
+
+\noindent\textbf{Answers and checks.} For item 1, use the following selection and sort:
+\begin{lstlisting}
+# Keep the requested rows and columns, then order by away goals.
+answer = results.loc[results["Away Wins"] >= 10,
+                     ["Team", "Away GF"]]
+answer = answer.sort_values("Away GF", ascending=False)
+\end{lstlisting}
+For item 2, Manchester City and Manchester United both have 66 points; their goal differences are 30 and 14, respectively. For item 3, unmatched fields are missing, and an indicator column shows \texttt{left\_only}. A reference solution for item 4 is in the final notebook cell. Describe a plot as an observed association; a causal conclusion needs a different study design.
+
+\section*{Quick reference}
+\small
+\begin{center}
+\begin{tabular}{@{}p{0.27\linewidth}p{0.66\linewidth}@{}}
+\toprule
+Task & pandas expression \\
+\midrule
+Read or write & \texttt{pd.read\_csv("file.csv")} / \texttt{df.to\_csv("file.csv", index=False)} \\
+Inspect & \texttt{df.shape}, \texttt{df.dtypes}, \texttt{df.isna().sum()}, \texttt{df.describe()} \\
+Select & \texttt{df.loc[:, ["Team", "Points"]]} / \texttt{df.iloc[:5]} \\
+Filter & \texttt{df.loc[df["Points"] >= 60]} \\
+Sort & \texttt{df.sort\_values("Points", ascending=False)} \\
+Add a column & \texttt{df["GoalDiff"] = df["TotalGF"] - df["TotalGA"]} \\
+Join & \texttt{left.merge(right, on="Team", validate="one\_to\_one")} \\
+Parse dates & \texttt{pd.to\_datetime(df["date"], format="\%d \%b \%Y")} \\
+\bottomrule
+\end{tabular}
+\end{center}
+\normalsize
+\end{document}
